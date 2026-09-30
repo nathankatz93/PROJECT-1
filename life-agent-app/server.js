@@ -49,8 +49,19 @@ const MAX_TEXT_LENGTH = 500;
 // --- Gemini API helper ----------------------------------------------------
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
+// The free tier gets deprioritized under load and returns 503 "high demand"
+// fairly often. Retry a couple of times with a short backoff before giving
+// up — this is standard practice for any app calling a third-party LLM API.
+async function fetchWithRetry(url, options, retries = 2) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status !== 503 || attempt >= retries) return res;
+    await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+  }
+}
+
 async function callGemini(text, { json = false } = {}) {
-  const res = await fetch(GEMINI_URL, {
+  const res = await fetchWithRetry(GEMINI_URL, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
     body: JSON.stringify({
@@ -81,7 +92,7 @@ const TOOLS = [{
     },
     {
       name: "get_weather",
-      description: "מחזיר תחזית מזג אוויר ורוח נוכחית לאזור תל אביב, שימושי להמלצות על גלישת SUP.",
+      description: "מחזיר תחזית רוח, משקעים וגובה גלים (ים) לאזור תל אביב, שימושי להמלצות על גלישת SUP.",
       parameters: { type: "OBJECT", properties: {} },
     },
   ],
@@ -98,17 +109,27 @@ function searchJournal(entries, query) {
 }
 
 async function getWeather() {
+  const result = {};
   try {
     const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=32.08&longitude=34.78&current=wind_speed_10m,precipitation&daily=wind_speed_10m_max&timezone=Asia%2FJerusalem");
     const d = await r.json();
-    return {
-      wind_now_kmh: d.current?.wind_speed_10m,
-      precipitation_now_mm: d.current?.precipitation,
-      wind_tomorrow_max_kmh: d.daily?.wind_speed_10m_max?.[1],
-    };
+    result.wind_now_kmh = d.current?.wind_speed_10m;
+    result.precipitation_now_mm = d.current?.precipitation;
+    result.wind_tomorrow_max_kmh = d.daily?.wind_speed_10m_max?.[1];
   } catch {
-    return { error: "לא הצלחתי לקבל תחזית כרגע." };
+    result.wind_error = "לא הצלחתי לקבל נתוני רוח כרגע.";
   }
+  // Wave height matters more than wind for SUP/surf conditions — separate
+  // free API (Open-Meteo Marine), so it's fetched and merged independently.
+  try {
+    const r = await fetch("https://marine-api.open-meteo.com/v1/marine?latitude=32.08&longitude=34.78&current=wave_height&daily=wave_height_max&timezone=Asia%2FJerusalem");
+    const d = await r.json();
+    result.wave_height_now_m = d.current?.wave_height;
+    result.wave_height_tomorrow_max_m = d.daily?.wave_height_max?.[1];
+  } catch {
+    result.wave_error = "לא הצלחתי לקבל נתוני גלים כרגע.";
+  }
+  return result;
 }
 
 // Tool-use loop: sends the conversation + tool definitions, executes any
@@ -117,7 +138,7 @@ async function getWeather() {
 async function runAgent(userText, entries) {
   let contents = [{ role: "user", parts: [{ text: userText }] }];
   for (let i = 0; i < 4; i++) {
-    const res = await fetch(GEMINI_URL, {
+    const res = await fetchWithRetry(GEMINI_URL, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
       body: JSON.stringify({ contents, tools: TOOLS }),
