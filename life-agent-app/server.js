@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = path.join(__dirname, "data.json");
 const CATEGORIES = ["כוח", "אומנויות לחימה", "סלסה", "גיטרה", "צילום/כלב/SUP"];
-const MODEL = "gemini-2.5-flash"; // free tier via Google AI Studio (ai.google.dev)
+const MODEL = "gemini-3.8-flash"; // free tier via Google AI Studio (ai.google.dev)
 
 const app = express();
 app.set("trust proxy", 1); // Render/Railway sit behind a proxy; needed for req.ip to be accurate
@@ -47,12 +47,12 @@ function rateLimit(req, res, next) {
 const MAX_TEXT_LENGTH = 500;
 
 // --- Gemini API helper ----------------------------------------------------
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 async function callGemini(text, { json = false } = {}) {
   const res = await fetch(GEMINI_URL, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text }] }],
       ...(json ? { generationConfig: { responseMimeType: "application/json" } } : {}),
@@ -119,7 +119,7 @@ async function runAgent(userText, entries) {
   for (let i = 0; i < 4; i++) {
     const res = await fetch(GEMINI_URL, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
       body: JSON.stringify({ contents, tools: TOOLS }),
     });
     if (!res.ok) throw new Error(`Gemini API error: ${res.status} ${await res.text()}`);
