@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>הסוכן האישי שלי</title>
+<style>
+:root{--bg:#faf7f2;--card:#fff;--ink:#1e1b16;--sub:#6b6459;--accent:#c9622c;--accent2:#3d6b5c;--line:#e8e1d6;--radius:16px;}
+@media (prefers-color-scheme: dark){:root{--bg:#171512;--card:#211e1a;--ink:#f2ede4;--sub:#a79f92;--line:#332f28;}}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;}
+header{padding:20px 16px 8px;text-align:center;}
+header p{margin:4px 0 0;color:var(--sub);font-size:.9rem;}
+main{max-width:640px;margin:0 auto;padding:12px 16px 40px;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px;}
+textarea{width:100%;min-height:64px;border-radius:12px;border:1px solid var(--line);padding:10px;font-size:1rem;background:transparent;color:var(--ink);font-family:inherit;}
+.row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center;}
+button{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:.95rem;cursor:pointer;}
+button.secondary{background:transparent;color:var(--accent2);border:1px solid var(--accent2);}
+.tag{display:inline-block;font-size:.75rem;padding:3px 9px;border-radius:20px;background:var(--accent2);color:#fff;margin-inline-end:6px;}
+.entry{border-bottom:1px solid var(--line);padding:10px 0;}
+.streaks{display:flex;gap:10px;flex-wrap:wrap;}
+.streak{flex:1;min-width:110px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;}
+.streak b{font-size:1.3rem;display:block;color:var(--accent);}
+#summaryBox{white-space:pre-wrap;line-height:1.6;font-size:.95rem;}
+.status{font-size:.8rem;color:var(--sub);}
+</style>
+</head>
+<body>
+<header><h1>🧭 הסוכן האישי שלי</h1><p>כוח · אומנויות לחימה · סלסה · גיטרה · צילום & SUP עם הכלב</p></header>
+<main>
+  <div class="card">
+    <textarea id="input" placeholder="ספר לי מה עשית היום..."></textarea>
+    <div class="row"><button id="addBtn">הוסף ותן לי לנתח 🤖</button><span class="status" id="status"></span></div>
+  </div>
+  <div class="card">
+    <b>שאל את הסוכן 🤖</b>
+    <p class="status" style="margin:4px 0 8px;">הסוכן יכול לחפש ביומן שלך או לבדוק מזג אוויר בעצמו כדי לענות.</p>
+    <div class="row">
+      <textarea id="askInput" style="min-height:44px;" placeholder="לדוגמה: 'מתי בפעם האחרונה עבדתי על סקוואט?' או 'האם מחר טוב ל-SUP?'"></textarea>
+      <button id="micBtn" class="secondary" title="הקלטה קולית">🎤</button>
+    </div>
+    <div class="row"><button id="askBtn">שאל</button><span class="status" id="askStatus"></span></div>
+    <div id="askAnswer" style="margin-top:10px; white-space:pre-wrap;"></div>
+  </div>
+  <div class="card"><b>הסטטיסטיקות שלי</b><div class="streaks" id="streaks"></div></div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;"><b>סיכום שבועי חכם</b><button class="secondary" id="summaryBtn">צור סיכום ✨</button></div>
+    <div id="summaryBox" style="margin-top:10px;"></div>
+  </div>
+  <div class="card"><b>יומן פעילויות</b><div id="entries"></div></div>
+</main>
+<script>
+const CATS = {"כוח":"🏋️","אומנויות לחימה":"🥋","סלסה":"💃","גיטרה":"🎸","צילום/כלב/SUP":"📸"};
+let userId = localStorage.getItem("laUserId");
+if(!userId){ userId = crypto.randomUUID(); localStorage.setItem("laUserId", userId); }
+const headers = {"content-type":"application/json","x-user-id":userId};
+let entries = [];
+
+async function loadEntries(){
+  const r = await fetch("/api/entries", {headers});
+  entries = await r.json();
+  render();
+}
+function setStatus(t){ document.getElementById("status").textContent = t; }
+
+async function addEntry(){
+  const box = document.getElementById("input");
+  const text = box.value.trim();
+  if(!text) return;
+  document.getElementById("addBtn").disabled = true; setStatus("מנתח עם AI...");
+  try{
+    const r = await fetch("/api/entries", {method:"POST", headers, body: JSON.stringify({text})});
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(data.error || "שגיאה");
+    box.value = ""; setStatus("נשמר ✔");
+    await loadEntries();
+  }catch(e){ setStatus(e.message || "שגיאה, נסה שוב."); }
+  document.getElementById("addBtn").disabled = false;
+}
+
+function render(){
+  const counts = {}; Object.keys(CATS).forEach(c=>counts[c]=0);
+  entries.forEach(e=>(e.categories||[]).forEach(c=>{ if(counts[c]!==undefined) counts[c]++; }));
+  document.getElementById("streaks").innerHTML = Object.entries(counts).map(([c,n])=>
+    `<div class="streak"><b>${CATS[c]} ${n}</b><span>${c}</span></div>`).join("");
+  const el = document.getElementById("entries");
+  el.innerHTML = entries.length ? entries.slice(0,50).map(e=>{
+    const tags = (e.categories||[]).map(c=>`<span class="tag">${CATS[c]||c}</span>`).join("");
+    const date = e.createdAt ? new Date(e.createdAt).toLocaleString("he-IL") : "";
+    return `<div class="entry"><div>${e.summary||e.text}</div><div class="status">${tags}${date}</div></div>`;
+  }).join("") : '<div class="status">עדיין אין רשומות.</div>';
+}
+
+async function makeSummary(){
+  const box = document.getElementById("summaryBox");
+  box.textContent = "חושב...";
+  try{
+    const r = await fetch("/api/summary", {method:"POST", headers});
+    const data = await r.json();
+    box.textContent = data.summary || "לא הצלחתי ליצור סיכום.";
+  }catch(e){ box.textContent = "שגיאה, נסה שוב."; }
+}
+
+document.getElementById("addBtn").addEventListener("click", addEntry);
+document.getElementById("summaryBtn").addEventListener("click", makeSummary);
+
+async function askAgent(){
+  const box = document.getElementById("askInput");
+  const question = box.value.trim();
+  if(!question) return;
+  const status = document.getElementById("askStatus");
+  const answerEl = document.getElementById("askAnswer");
+  document.getElementById("askBtn").disabled = true;
+  status.textContent = "הסוכן חושב, אולי מפעיל כלים...";
+  answerEl.textContent = "";
+  try{
+    const r = await fetch("/api/ask", {method:"POST", headers, body: JSON.stringify({question})});
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(data.error || "שגיאה");
+    answerEl.textContent = data.answer;
+    status.textContent = "";
+  }catch(e){ status.textContent = e.message || "שגיאה, נסה שוב."; }
+  document.getElementById("askBtn").disabled = false;
+}
+document.getElementById("askBtn").addEventListener("click", askAgent);
+
+// Voice input: uses the browser's built-in speech recognition (Chrome/Edge).
+// No server involved — transcription happens locally in the browser.
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById("micBtn");
+if(SpeechRec){
+  const rec = new SpeechRec();
+  rec.lang = "he-IL";
+  rec.onresult = (e) => {
+    document.getElementById("askInput").value = e.results[0][0].transcript;
+  };
+  rec.onstart = () => { micBtn.textContent = "🔴"; };
+  rec.onend = () => { micBtn.textContent = "🎤"; };
+  micBtn.addEventListener("click", () => rec.start());
+} else {
+  micBtn.disabled = true;
+  micBtn.title = "הדפדפן הזה לא תומך בהקלטה קולית (נסה Chrome)";
+}
+
+loadEntries();
+</script>
+</body>
+</html>
