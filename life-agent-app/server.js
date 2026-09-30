@@ -141,7 +141,7 @@ async function runAgent(userText, entries) {
       else result = { error: "unknown tool" };
       responseParts.push({ functionResponse: { name, response: { result } } });
     }
-    contents.push({ role: "function", parts: responseParts });
+    contents.push({ role: "user", parts: responseParts });
   }
   return "לא הצלחתי לסיים את המשימה, נסה לנסח מחדש.";
 }
